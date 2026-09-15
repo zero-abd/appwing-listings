@@ -1,0 +1,104 @@
+name: Listings mirror
+
+# Builds the compact listings mirror Appwing's Worker reads, from Simplify's public
+# Summer2027-Internships listings.json. It lives in this PUBLIC repository because
+# GitHub's standard runners are free on public repositories; see README.md.
+#
+# Two checkouts: the `listings-data` branch at the workspace root (the output), and
+# `main` under `tool/` (the scripts). Only the two data files are ever committed.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      scan_limit:
+        description: >-
+          How many postings this run may read (1-400). Leave blank for the
+          scheduled 60. Raise it to drive a cold re-read after a SCAN_REVISION bump.
+        required: false
+        type: string
+
+concurrency:
+  group: listings-mirror
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    name: fetch, filter, commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - name: Check out the data branch
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: listings-data
+          fetch-depth: 1
+
+      - name: Create the data branch if it does not exist
+        if: steps.checkout.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          git init -b listings-data .
+
+      - name: Check out the mirror scripts
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: tool
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Read the postings for a sponsorship barrier, agent-directed text, and a stated rate
+        id: scan
+        continue-on-error: true
+        timeout-minutes: 7
+        run: |
+          node tool/.github/scripts/scan-sponsorship.mjs \
+            --listings listings.json \
+            --cache sponsorship-scan.json \
+            ${{ inputs.scan_limit && format('--limit {0}', inputs.scan_limit) || '' }}
+
+      - name: Build the mirror
+        id: build
+        run: node tool/.github/scripts/mirror-listings.mjs --out listings.json --scan-cache sponsorship-scan.json
+
+      - name: Commit the mirror
+        if: steps.build.outputs.changed == 'true' || steps.scan.outputs.scanChanged == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -rf tool
+          git add listings.json
+          if [ -f sponsorship-scan.json ]; then git add sponsorship-scan.json; fi
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+            exit 0
+          fi
+          git commit -m "listings: ${{ steps.build.outputs.count }} postings (${{ steps.build.outputs.bytes }} bytes), ${{ steps.build.outputs.barriers }} sponsorship barriers"
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:listings-data
+
+      - name: Report
+        run: |
+          echo "changed=${{ steps.build.outputs.changed }}"
+          echo "count=${{ steps.build.outputs.count }}"
+          echo "bytes=${{ steps.build.outputs.bytes }}"
+          echo "scanOutcome=${{ steps.scan.outcome }}"
+          echo "scanChanged=${{ steps.scan.outputs.scanChanged }}"
+          echo "scannedThisRun=${{ steps.scan.outputs.scanned }}"
+          echo "postingsRead=${{ steps.build.outputs.scanned }}"
+          echo "barriers=${{ steps.build.outputs.barriers }}"
+          echo "payThisRun=${{ steps.scan.outputs.pay }}"
+          echo "payStated=${{ steps.build.outputs.pay }}"
+          echo "readers=${{ steps.scan.outputs.readers }}"
