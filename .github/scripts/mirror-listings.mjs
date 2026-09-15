@@ -10,7 +10,9 @@
  * killed mid-parse, every minute, forever, and the board never fills.
  *
  * The parse has to happen somewhere with a real CPU budget, and a GitHub Action
- * is the cheapest such place this repo already owns. So the work splits:
+ * is the cheapest such place. Since 2026-09-15 it runs in the PUBLIC repository
+ * `zero-abd/appwing-listings`, where standard runners are free; the copy of this
+ * file there must be refreshed whenever this one changes. So the work splits:
  *
  *   here (every 15 min, GitHub)   fetch 10.7 MB, filter, compact, commit ~200 KB
  *   the Worker (every minute)     conditional GET of the ~200 KB, parse, upsert
@@ -20,7 +22,7 @@
  *
  * WHERE THE OUTPUT GOES, AND WHY IT IS A BRANCH.
  *
- * `listings-data` — an ORPHAN branch of this same repo, holding one file and no
+ * `listings-data` — an ORPHAN branch of the mirror's repo, holding one file and no
  * history in common with master. A branch rather than a release asset or a
  * gist because it needs no credential to read, it is versioned, and a bad
  * mirror can be reverted with `git revert`. Orphan because the mirror has
