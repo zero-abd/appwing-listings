@@ -268,7 +268,17 @@ export const MIN_READABLE_CHARS = 400;
 // and there is no way to tell which from the cache. Cost is the same full
 // re-read as revisions 4 and 5 — ~1,900 postings, 32 scheduled runs at 60 or 5
 // dispatches at `scan_limit` 400.
-export const SCAN_REVISION = 6;
+// 7 (27 September 2026): ./sponsorship-text.mjs now reads the gates only a US
+// citizen clears — a required security clearance, and an export-control
+// requirement to be a "U.S. person", which revision 6 skipped whenever the line
+// also named ITAR — and a refusal worded without a verb ("Immigration
+// sponsorship not available for this role"). The stricter bar also wins across
+// the whole posting now, not only within one line. Measured on that day's
+// board: of 217 postings read with no bar, 10 carried one of these (seven Booz
+// Allen internships reading "Ability to obtain a Secret clearance"). A bump
+// because every one of those verdicts is cached as `open` with no way to tell
+// which: ~2,200 open postings, 6 dispatches at `scan_limit` 400.
+export const SCAN_REVISION = 7;
 
 /** Named so a host can see who we are and tell us to stop. */
 export const USER_AGENT =

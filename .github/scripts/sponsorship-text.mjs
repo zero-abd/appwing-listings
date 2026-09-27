@@ -82,12 +82,24 @@ const ASKS =
   /\?|\bif\s+you\b|\bare\s+you\b|\bdo\s+you\b|\bwill\s+you\b|please\s+(?:type|select|indicate|answer|note|complete)|check\s+(?:all|one)|\bN\/A\b/i;
 
 /**
- * A bar on named nationalities, or an export-control clause. Real, and not the
- * question this column answers — the filter means "this posting will not
- * sponsor", and these postings will, for almost everyone.
+ * A bar on named nationalities, or a sanctions clause. Real, and not the
+ * question this column answers — the filter means "this posting will not take
+ * a student who is not a US citizen", and these postings will, for almost
+ * everyone. A line naming citizenship OF ANOTHER COUNTRY ("citizenship of
+ * Australia, Japan, … or a NATO country", measured on an ITAR posting) is in the
+ * same class: which nationalities clear it is not ours to decide for anybody.
+ *
+ * `itar` and `export control` USED TO BE HERE, and that was the one error in
+ * this list that ran the expensive way. An export-control line that says
+ * "applicants must be U.S. persons" is exactly a citizenship-or-residency gate —
+ * the student it bars is the one who reads this board for that answer — and
+ * skipping every line that named ITAR skipped the requirement with the
+ * boilerplate. They are now read like any other line: a bare mention of ITAR
+ * names no requirement and marks nothing (`CITIZEN_TERM` and `REQUIREMENT` must
+ * both be present), and a stated US-person requirement is a bar.
  */
 const NATIONALITY_SPECIFIC =
-  /\bfrom\s+(?:russia|belarus|iran|cuba|north\s+korea|syria|venezuela|china)\b|citizens?\s+of\s+(?:russia|belarus|iran|cuba|north\s+korea|syria)|sanction|export\s+control|embargo|itar/i;
+  /\bfrom\s+(?:russia|belarus|iran|cuba|north\s+korea|syria|venezuela|china)\b|citizens?\s+of\s+(?:russia|belarus|iran|cuba|north\s+korea|syria)|sanction|embargo|\bcitizens?(?:hip)?\s+(?:of|from)\s+(?!(?:the\s+)?(?:u\.?s\.?a?\b|united\s+states))/i;
 
 /**
  * The employer declining to sponsor. The negated verb has to be about
@@ -99,7 +111,7 @@ const REFUSES =
 
 /** The same refusal in the passive, which is how most postings word it. */
 const NOT_AVAILABLE =
-  /sponsorship\s+is\s+not\s+(?:available|offered|provided|possible)|not\s+eligible\s+for\s+(?:employment\s+|visa\s+|immigration\s+)?(?:visa\s+)?sponsor|no\s+(?:visa\s+|immigration\s+|employment\s+)?sponsorship\s+(?:is\s+)?(?:available|offered|provided)|work\s+(?:in\s+the\s+u\.?s\.?\s+)?without\s+(?:the\s+need\s+for\s+)?(?:visa\s+|immigration\s+)?sponsorship/i;
+  /sponsorship\s+(?:is\s+)?not\s+(?:available|offered|provided|possible)|not\s+eligible\s+for\s+(?:employment\s+|visa\s+|immigration\s+)?(?:visa\s+)?sponsor|no\s+(?:visa\s+|immigration\s+|employment\s+)?sponsorship\s+(?:is\s+)?(?:available|offered|provided)|work\s+(?:in\s+the\s+u\.?s\.?\s+)?without\s+(?:the\s+need\s+for\s+)?(?:visa\s+|immigration\s+)?sponsorship/i;
 
 const CITIZEN_TERM =
   /\bu\.?s\.?\s*citizen|\bcitizenship\b|green\s*card|lawful\s+permanent\s+resident|permanent\s+resident|\bu\.?s\.?\s*person\b/i;
@@ -109,6 +121,99 @@ const REQUIREMENT =
   /\bmust\s+be\b|\bis\s+required\b|\bare\s+required\b|\brequires\b|\brequired\s+to\b|\bonly\b|\beligibility\b/i;
 
 /**
+ * A security clearance, named as a kind of clearance rather than as a word.
+ *
+ * A clearance is a citizenship requirement in all but name: a US security
+ * clearance is granted to US citizens, so "Ability to obtain a Secret
+ * clearance" bars every student who is not one exactly as "Must be a U.S.
+ * citizen" does. Measured on 27 September 2026: twenty-seven open Booz Allen
+ * internships carried that line and nothing else about citizenship, and all of
+ * them were on the board as "no barrier found".
+ *
+ * The qualifier is required. "Clearance" alone is customs, a medical form, a
+ * sale — and "Security Clearance Type:" is a HEADING whose answer is often
+ * "None/Not Required" on the next line (RTX writes it that way).
+ */
+const CLEARANCE =
+  /\b(?:security|secret|top[\s-]+secret|ts\s*\/\s*sci|ts|sci|dod|doe|q|l|government|federal)\s+(?:security\s+)?clearance\b/i;
+
+/** The clearance is something the applicant must have or be able to get. */
+const CLEARANCE_NEEDED =
+  /\b(?:able|ability)\s+to\s+(?:obtain|maintain|hold|get|acquire)\b|\bmust\b|\brequired\b|\brequires\b|\brequirement|\beligib(?:le|ility)\b|\b(?:obtain|possess|hold|maintain)\b|\bactive\b|\bcurrent\b/i;
+
+/**
+ * Wording that makes a named requirement optional, absent or hypothetical. A
+ * clearance that is "a plus", "preferred" or "not required" bars nobody, and
+ * "may need to meet eligibility requirements" is a hedge a rule cannot read as
+ * a yes.
+ */
+const OPTIONAL =
+  /\bnot\s+(?:required|needed|necessary)\b|\bnone\b|\bprefer|\ba\s+plus\b|\bnice\s+to\s+have\b|\bbonus\b|\bdesired\b|\badvantage|\bmay\s+(?:need|be\s+required|require)\b|\bif\s+(?:needed|required|applicable)\b/i;
+
+/**
+ * A heading that opens a list of things the employer would LIKE, not things it
+ * requires. Booz Allen lays a posting out as "You Have:" then "Nice If You
+ * Have:"; a clearance under the second is a preference.
+ *
+ * READ FOR THE CLEARANCE RULE ONLY. A posting's sections do not reliably end:
+ * Genworth's "Nice To Have" list runs straight into "At this time, Genworth will
+ * not sponsor …" under a heading this reader cannot see, and Astranis puts its
+ * citizenship requirement after "Bonus". Applied to every rule, the section
+ * erased three bars revision 6 had found, so the older rules ignore it and only
+ * the new one — whose whole risk is a clearance that was merely welcome — asks.
+ */
+const PREFERRED_HEADING =
+  /\b(?:nice\s+(?:if|to)|prefer|bonus|pluses|a\s+plus|desired|optional|good\s+to\s+have)\b/i;
+
+/** Words a section heading is made of. */
+const HEADING_WORDS =
+  /\b(?:requirements?|qualifications?|you\s+(?:have|bring|need|are|will)|responsibilities|what\s+(?:you|we)|about\s+(?:you|the\s+(?:role|team|job)|us)|benefits|compensation|skills|experience|education|nice\s+(?:if|to)|preferred|bonus|pluses|desired)\b/i;
+
+/**
+ * A heading, never a statement: a short line ending in a colon, or a short
+ * title-like line — four words at most, no punctuation — that names a section.
+ *
+ * The second kind is measured, not guessed. Motorola Solutions writes
+ * "Preferred Skills:" WITH a colon and then "Basic Requirements" WITHOUT one,
+ * and a reader that only knew the first shape carried "preferred" into the
+ * requirements and missed "Must be a US Citizen, permanent resident …" — a bar
+ * revision 6 had found.
+ */
+function isHeading(line) {
+  if (line.length <= 80 && /:\s*$/.test(line)) return true;
+  return (
+    line.split(/\s+/).length <= 4 &&
+    /^[A-Z]/.test(line) &&
+    !/[.!?;,]/.test(line) &&
+    HEADING_WORDS.test(line)
+  );
+}
+
+/**
+ * The posting's lines, each with whether it sits under a "preferred" heading.
+ *
+ * `postingLines` drops short lines, and a heading is usually one ("You Have:"
+ * is nine characters), so the section is tracked over the raw pieces rather than
+ * over its output. A heading line is never itself classified.
+ */
+function readSections(text) {
+  const out = [];
+  let preferred = false;
+  for (const block of String(text ?? "").split("\n")) {
+    for (const piece of block.split(/(?<![A-Z][.!?])(?<=[.!?])\s+/)) {
+      const line = piece.trim();
+      if (!line) continue;
+      if (isHeading(line)) {
+        preferred = PREFERRED_HEADING.test(line);
+        continue;
+      }
+      if (line.length > 12 && line.length <= 400) out.push({ line, preferred });
+    }
+  }
+  return out;
+}
+
+/**
  * One posting's text, as a status and the sentence it came from.
  *
  * `open` here means exactly what it means in 0010: NO STATED BARRIER. It is not
@@ -116,16 +221,32 @@ const REQUIREMENT =
  * — a JavaScript shell, a page that would not fetch — it is also what "we did
  * not look" produces. The caller records WHETHER a posting was read separately;
  * see `sponsorshipScanned` in the mirror.
+ *
+ * THE STRICTER BAR WINS ACROSS THE WHOLE POSTING, not merely within a line. A
+ * posting that says "we do not sponsor" in one paragraph and "must be able to
+ * obtain a Secret clearance" in another bars a non-citizen twice, and the
+ * honest summary is the citizenship bar — the same precedence
+ * `normalizeSponsorship` applies inside one note. Until revision 7 the first
+ * matching line won whichever it was.
+ *
+ * `citizenship_required` covers every gate only a US citizen (or, for the
+ * export-control wording, a permanent resident) can clear: citizenship, a green
+ * card, US-person status, and a security clearance. The evidence sentence says
+ * which one it was.
  */
 export function classifyPostingText(text) {
-  for (const line of postingLines(text)) {
+  let refusal = null;
+  for (const { line, preferred } of readSections(text)) {
     if (BOILERPLATE.test(line) || ASKS.test(line) || NATIONALITY_SPECIFIC.test(line)) continue;
     if (CITIZEN_TERM.test(line) && REQUIREMENT.test(line)) {
       return { status: "citizenship_required", evidence: line };
     }
-    if (REFUSES.test(line) || NOT_AVAILABLE.test(line)) {
-      return { status: "no_sponsorship", evidence: line };
+    if (!preferred && CLEARANCE.test(line) && CLEARANCE_NEEDED.test(line) && !OPTIONAL.test(line)) {
+      return { status: "citizenship_required", evidence: line };
     }
+    if (!refusal && (REFUSES.test(line) || NOT_AVAILABLE.test(line))) refusal = line;
   }
-  return { status: "open", evidence: null };
+  return refusal
+    ? { status: "no_sponsorship", evidence: refusal }
+    : { status: "open", evidence: null };
 }
