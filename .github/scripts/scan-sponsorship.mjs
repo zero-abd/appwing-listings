@@ -469,11 +469,17 @@ function fetchableUrl(value) {
  */
 export function isFresh(entry, url, now) {
   if (!entry || typeof entry !== "object") return false;
-  if (entry.revision !== SCAN_REVISION) return false;
   if (entry.url !== url) return false;
   const checkedAt = typeof entry.checkedAt === "number" ? entry.checkedAt : 0;
   if (checkedAt <= 0) return false;
   const age = now - checkedAt;
+  if (entry.revision !== SCAN_REVISION) {
+    // A verdict carried from an older revision is due — unless THIS revision
+    // already tried it and failed, in which case it waits out the same retry
+    // delay an unread posting does. Without this, a host that 403s would be
+    // asked again on every run once the queue was short. See `mergeScan`.
+    return entry.attemptedRevision === SCAN_REVISION && age < RETRY_UNREAD_AFTER_SECONDS;
+  }
   return entry.status === "unread" ? age < RETRY_UNREAD_AFTER_SECONDS : age < RESCAN_AFTER_SECONDS;
 }
 
@@ -502,9 +508,16 @@ export function selectToScan(listings, cache, now, limit = SCAN_LIMIT) {
     if (!url) continue;
     const entry = entries[listing.id];
     if (isFresh(entry, url, now)) continue;
-    const everRead = entry && entry.revision === SCAN_REVISION && entry.url === url
-      ? Number(entry.checkedAt) || 0
-      : 0;
+    // "Ever read" is anything with a verdict for this url — under any revision
+    // — or an attempt under this one. A verdict carried over from an older
+    // revision (see `mergeScan`) is due, but it is not worth more than a posting
+    // nobody has read at all, and once it has been tried and failed its
+    // `checkedAt` sends it to the back of the queue instead of the front of
+    // every run: a host that 403s would otherwise spend each run's budget.
+    const everRead =
+      entry && entry.url === url && (entry.revision === SCAN_REVISION || entry.status !== "unread")
+        ? Number(entry.checkedAt) || 0
+        : 0;
     due.push({ id: listing.id, url, priority: everRead === 0 ? 0 : 1, checkedAt: everRead });
   }
   due.sort(
@@ -587,15 +600,24 @@ export function mergeScan(cache, results, liveIds) {
       continue;
     }
 
-    // Not read. Keep a prior verdict for THIS url under THIS revision; otherwise
-    // the posting is on record as unread and will be tried again.
+    // Not read. Keep a prior verdict for THIS url, whichever revision read it;
+    // otherwise the posting is on record as unread and will be tried again.
+    //
+    // WHICHEVER REVISION, since revision 7. The rule used to carry a verdict
+    // only when it came from the current revision, so the first failed re-read
+    // after a bump ERASED it: the revision 7 re-read hit a wall of 403s from
+    // Workday and Oracle hosts and 47 barriers read under revision 6 became
+    // `unread` — the board stopped telling a student about bars that are still
+    // in those postings. A verdict from an older rule is a worse answer than a
+    // fresh one and a far better one than none. It keeps its OWN revision, so
+    // it is still due for the new rule, and records `attemptedRevision` so
+    // `isFresh` holds it back for the unread retry delay first.
     const carries =
       previousEntry &&
-      previousEntry.revision === SCAN_REVISION &&
       previousEntry.url === result.url &&
       previousEntry.status !== "unread";
     entries[result.id] = carries
-      ? { ...previousEntry, checkedAt: result.at }
+      ? { ...previousEntry, checkedAt: result.at, attemptedRevision: SCAN_REVISION }
       : {
           status: "unread",
           evidence: null,
