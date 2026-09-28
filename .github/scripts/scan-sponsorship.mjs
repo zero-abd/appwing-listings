@@ -44,6 +44,11 @@
  *                                 for the reason `injection: false` is: a
  *                                 posting read today and found to state no rate
  *                                 is a different fact from one nobody has read.
+ *   eligibility                   who the posting says may apply: `{gradWindow,
+ *                                 degreeLevels, classYears, standing,
+ *                                 schoolRule}`, each null unless stated
+ *                                 (./eligibility-text.mjs). Absent on an entry
+ *                                 written before revision 8.
  *   scannedAt, checkedAt          when it was last READ, and when it was last
  *                                 TRIED. The pair that tells a clean posting
  *                                 from an unreachable one.
@@ -108,6 +113,7 @@ import { pathToFileURL } from "node:url";
 import { classifyPostingText } from "./sponsorship-text.mjs";
 import { scanForInjection } from "./injection-text.mjs";
 import { extractPay } from "./pay-text.mjs";
+import { extractEligibility } from "./eligibility-text.mjs";
 import { READER_NAMES, isWorkdayHost, postingReader, workdayCxsUrl } from "./posting-readers.mjs";
 
 /**
@@ -278,7 +284,17 @@ export const MIN_READABLE_CHARS = 400;
 // Allen internships reading "Ability to obtain a Secret clearance"). A bump
 // because every one of those verdicts is cached as `open` with no way to tell
 // which: ~2,200 open postings, 6 dispatches at `scan_limit` 400.
-export const SCAN_REVISION = 7;
+// 8 (28 September 2026): every read now also extracts WHO MAY APPLY
+// (./eligibility-text.mjs: graduation window, degree programmes, class years,
+// year in school, school rules), which no cached entry holds; the sponsorship
+// rule reads ITAR/EAR access requirements and a clearance written as a field
+// value; and four readers (Oracle Recruiting's REST resource, Greenhouse's
+// embed behind an employer's own domain, Workable, BambooHR) reach postings
+// that were `unread`. Measured that day over all 2,158 open postings: 299
+// unread became 49, and 40 read-as-open postings carry a gate. A bump because
+// no entry can say "eligibility read" without a re-read. The first full pass
+// was run by hand the same day; see the PR that set this.
+export const SCAN_REVISION = 8;
 
 /** Named so a host can see who we are and tell us to stop. */
 export const USER_AGENT =
@@ -585,6 +601,10 @@ export function mergeScan(cache, results, liveIds) {
         // MIRROR is where the absence discipline applies — `payFields` writes no
         // key at all for a null — but the cache is a record of what was read.
         pay: result.pay ?? null,
+        // Written on every read, five nulls included: an object here is how the
+        // mirror tells "read, and the posting states no rule" from an entry an
+        // older revision wrote, which has no key at all.
+        eligibility: result.eligibility ?? null,
         // WHICH READER PRODUCED THE TEXT. `null` on an entry written before this
         // field existed, and on the plain HTML path it is simply "html" — see
         // ./posting-readers.mjs. Kept on the CACHE and deliberately not carried
@@ -863,6 +883,7 @@ export async function scanPostings(targets, deps = {}) {
         // carries no pay field of any kind, so the posting is the only place a
         // rate exists. See ./pay-text.mjs.
         const pay = extractPay(outcome.text);
+        const eligibility = extractEligibility(outcome.text);
         results.push({
           id: target.id,
           url: target.url,
@@ -877,6 +898,7 @@ export async function scanPostings(targets, deps = {}) {
           injection: injection.injection,
           injectionSnippets: injection.snippets,
           pay,
+          eligibility,
           at,
         });
       }

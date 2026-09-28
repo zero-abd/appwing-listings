@@ -75,7 +75,22 @@ export function postingLines(text) {
 
 /** Non-discrimination prose. Names citizenship to PROTECT it. */
 const BOILERPLATE =
-  /without\s+regard\s+to|regardless\s+of|equal\s+(?:employment\s+)?opportunity|protected\s+veteran|affirmative\s+action|discriminat|all\s+qualified\s+applicants|protected\s+class/i;
+  /without\s+regard\s+to|regardless\s+of|equal\s+(?:employment\s+)?opportunity|protected\s+veteran|affirmative\s+action|discriminat|all\s+qualified\s+applicants|protected\s+class|\bon\s+the\s+basis\s+of\b|\bany\s+other\s+(?:legally\s+)?protected\b|\bprotected\s+(?:by|under)\s+(?:federal|state|local|applicable|law)/i;
+
+/**
+ * Lines that NAME citizenship without making it a condition of the job:
+ *
+ *   E-Verify     "an employment eligibility verification system operated by the
+ *                U.S. Citizenship and Immigration Services" (U.S. Bank, four
+ *                postings gated on the agency's name, 28 September 2026).
+ *   I-9 wording  "Must be a U.S. Citizen or National of the U.S., an alien
+ *                lawfully admitted for permanent residence, or an alien
+ *                authorized to work in the U.S. for this employer" (UPS): the
+ *                last clause admits anyone authorized to work, so the line is a
+ *                work-authorization requirement, not a citizenship one.
+ */
+const NAMES_CITIZENSHIP_ONLY =
+  /citizenship\s+and\s+immigration\s+services|\be-?verify\b|\buscis\b|\bor\s+(?:an?\s+)?(?:alien|person|individual|non-?citizen|foreign\s+national|someone|anyone|candidates?)s?\s+(?:who\s+(?:is|are)\s+)?(?:otherwise\s+)?(?:lawfully\s+|legally\s+)?authori[sz]ed\s+to\s+work|\bor\s+(?:have|hold|possess)\s+(?:valid\s+|current\s+)?(?:u\.?s\.?\s+)?work\s+authori[sz]ation/i;
 
 /** A form asking the candidate, rather than the employer stating a bar. */
 const ASKS =
@@ -111,14 +126,14 @@ const REFUSES =
 
 /** The same refusal in the passive, which is how most postings word it. */
 const NOT_AVAILABLE =
-  /sponsorship\s+(?:is\s+)?not\s+(?:available|offered|provided|possible)|not\s+eligible\s+for\s+(?:employment\s+|visa\s+|immigration\s+)?(?:visa\s+)?sponsor|no\s+(?:visa\s+|immigration\s+|employment\s+)?sponsorship\s+(?:is\s+)?(?:available|offered|provided)|work\s+(?:in\s+the\s+u\.?s\.?\s+)?without\s+(?:the\s+need\s+for\s+)?(?:visa\s+|immigration\s+)?sponsorship/i;
+  /\bnot\s+(?:be\s+)?(?:eligible|open)\s+(?:for|to)\s+[^.]{0,40}?\bsponsorship|\bsponsorship\s+will\s+not\s+be\s+(?:provided|offered|available)|\bnot\s+a\s+position\s+for\s+which\s+sponsorship\s+will\s+be\s+provided|\bwork\b[^.]{0,60}?\bwithout\s+(?:the\s+need\s+for\s+)?(?:(?:current\s+or\s+future|employer|visa|immigration)\s+)*sponsorship|^\W*without\s+the\s+need\s+for\s+(?:employer\s+|visa\s+)?sponsorship|sponsorship\s+(?:is\s+)?not\s+(?:available|offered|provided|possible)|not\s+eligible\s+for\s+(?:employment\s+|visa\s+|immigration\s+)?(?:visa\s+)?sponsor|no\s+(?:visa\s+|immigration\s+|employment\s+)?sponsorship\s+(?:is\s+)?(?:available|offered|provided)|work\s+(?:in\s+the\s+u\.?s\.?\s+)?without\s+(?:the\s+need\s+for\s+)?(?:visa\s+|immigration\s+)?sponsorship/i;
 
 const CITIZEN_TERM =
   /\bu\.?s\.?\s*citizen|\bcitizenship\b|green\s*card|lawful\s+permanent\s+resident|permanent\s+resident|\bu\.?s\.?\s*person\b/i;
 
 /** Citizenship named as a condition, not merely mentioned. */
 const REQUIREMENT =
-  /\bmust\s+be\b|\bis\s+required\b|\bare\s+required\b|\brequires\b|\brequired\s+to\b|\bonly\b|\beligibility\b/i;
+  /\bcitizenship\s+(?:is\s+)?required\b|\bmust\s+be\b|\bis\s+required\b|\bare\s+required\b|\brequires\b|\brequired\s+to\b|\bonly\b|\beligibility\b/i;
 
 /**
  * A security clearance, named as a kind of clearance rather than as a word.
@@ -136,6 +151,72 @@ const REQUIREMENT =
  */
 const CLEARANCE =
   /\b(?:security|secret|top[\s-]+secret|ts\s*\/\s*sci|ts|sci|dod|doe|q|l|government|federal)\s+(?:security\s+)?clearance\b/i;
+
+/**
+ * A clearance named as the VALUE of a field rather than in a sentence: "Minimum
+ * Clearance Required to Start: TS/SCI with Polygraph". The same listing writes
+ * "Minimum Clearance Required to Start: None" on its unclassified roles, which
+ * `OPTIONAL` below reads as the absence it is.
+ */
+const CLEARANCE_FIELD =
+  /\bclearance\b[^.:]{0,40}:\s*(?:an?\s+)?(?:active\s+|current\s+|interim\s+)?(?:ts\s*\/\s*sci|top[\s-]+secret|secret|ts|dod\s+secret|doe\s+[ql]|q|l)\b/i;
+
+/**
+ * An export-control requirement: ITAR (the International Traffic in Arms
+ * Regulations) or the EAR (the Export Administration Regulations). A role that
+ * REQUIRES access to ITAR- or EAR-controlled information is open to US persons
+ * (citizens, permanent residents, asylees), which bars the student who needs
+ * sponsorship exactly as a citizenship line does. Measured on the live board,
+ * 28 September 2026: "applicants must be eligible to access export-controlled
+ * information", "This position requires access to information that is subject
+ * to ... ITAR", "In order to comply with the requirements of the ITAR and/or the
+ * EAR, applicants must qualify as a U.S. person" were all read as no barrier.
+ *
+ * `EAR` is matched in capitals only; the word "ear" is not a regulation.
+ */
+const EXPORT_CONTROL =
+  /\bITAR\b|international\s+traffic\s+in\s+arms|\bexport[-\s]controll?(?:ed)?\b|\bexport\s+control\s+(?:laws|regulations|requirements|license)|export\s+administration\s+regulations|\bEAR\b/i;
+const EXPORT_CONTROL_EAR_CASE = /\bEAR\b/;
+
+/** The line makes the control a condition of THIS role. */
+const EXPORT_GATE =
+  /\bmust\b|\brequires?\b|\brequired\b|\beligib(?:le|ility)\s+(?:to|for)\b|\bqualify\s+as\b|\b(?:position|role|job)\s+is\s+subject\s+to\b/i;
+
+/**
+ * Hedged or generic: "may require", "certain positions", "some of these roles",
+ * "if required", "will be asked". Company-wide boilerplate that names ITAR for
+ * the roles it applies to, never this one in particular.
+ */
+const EXPORT_HEDGE =
+  /\bmay\b|\bmight\b|\bcertain\s+(?:positions|roles)\b|\bsome\s+(?:of\s+(?:these|our)\s+)?(?:positions|roles)\b|\bif\s+(?:required|applicable|needed)\b|\bwhere\s+(?:required|applicable)\b|\bin\s+other\s+countries\b|\bnot\b/i;
+
+/**
+ * The sentences around an export-control line decide what it means as often as
+ * the line does. Marvell writes "This position MAY require access to ... EAR.
+ * As such, applicants must be eligible to access export-controlled information
+ * ... Marvell may be required to obtain export licensing approval": the middle
+ * sentence alone reads as a gate, and the posting says a licence is sought for
+ * the students it would otherwise bar. Rocket Lab puts its line under "FOR
+ * CANDIDATES SEEKING TO WORK IN NEW ZEALAND OFFICES ONLY". Both were read as
+ * gates by the first draft of this rule, measured over the live board.
+ */
+function exportHedgedByNeighbours(line, before, after) {
+  if (/^\W*(?:as\s+such|therefore|accordingly|thus|this\s+means|these\s+checks)\b/i.test(line) && EXPORT_HEDGE.test(before)) {
+    return true;
+  }
+  // A licence the employer can obtain, or foreign nationals named as eligible,
+  // in this sentence or the next: controlled access, not a citizenship bar.
+  const LICENCE = /\bexport\s+licen[cs]|\blicen[cs]ing\s+approval\b|\bforeign\s+(?:nationals?|persons?)\s+(?:may|can|will|are)\b/i;
+  if (LICENCE.test(line) || LICENCE.test(after)) return true;
+  if (/\bnationality\s+checks\b/i.test(line)) return true;
+  return /\b(?:new\s+zealand|australia|united\s+kingdom|canada|europe|other\s+countries|outside\s+(?:the\s+)?(?:u\.?s\.?|united\s+states))\b/i.test(before);
+}
+
+/**
+ * A form-style field whose answer is no: "US Citizenship Required for this
+ * Position: No". The words of a requirement, and the opposite fact.
+ */
+const FIELD_ANSWERS_NO = /:\s*(?:no|none|n\/a|not\s+required)\s*\.?\s*$/i;
 
 /** The clearance is something the applicant must have or be able to get. */
 const CLEARANCE_NEEDED =
@@ -163,7 +244,7 @@ const OPTIONAL =
  * the new one — whose whole risk is a clearance that was merely welcome — asks.
  */
 const PREFERRED_HEADING =
-  /\b(?:nice\s+(?:if|to)|prefer|bonus|pluses|a\s+plus|desired|optional|good\s+to\s+have)\b/i;
+  /\b(?:nice\s+(?:if|to)|prefer(?:red|ence|ably)?|bonus|pluses|a\s+plus|desired|optional|good\s+to\s+have)\b/i;
 
 /** Words a section heading is made of. */
 const HEADING_WORDS =
@@ -196,7 +277,7 @@ function isHeading(line) {
  * is nine characters), so the section is tracked over the raw pieces rather than
  * over its output. A heading line is never itself classified.
  */
-function readSections(text) {
+export function readSections(text) {
   const out = [];
   let preferred = false;
   for (const block of String(text ?? "").split("\n")) {
@@ -236,12 +317,29 @@ function readSections(text) {
  */
 export function classifyPostingText(text) {
   let refusal = null;
-  for (const { line, preferred } of readSections(text)) {
+  const sections = readSections(text);
+  for (let i = 0; i < sections.length; i++) {
+    const { line, preferred } = sections[i];
+    const before = sections[i - 1]?.line ?? "";
+    const after = sections[i + 1]?.line ?? "";
     if (BOILERPLATE.test(line) || ASKS.test(line) || NATIONALITY_SPECIFIC.test(line)) continue;
-    if (CITIZEN_TERM.test(line) && REQUIREMENT.test(line)) {
+    if (FIELD_ANSWERS_NO.test(line)) continue;
+    if (CITIZEN_TERM.test(line) && REQUIREMENT.test(line) && !NAMES_CITIZENSHIP_ONLY.test(line)) {
       return { status: "citizenship_required", evidence: line };
     }
     if (!preferred && CLEARANCE.test(line) && CLEARANCE_NEEDED.test(line) && !OPTIONAL.test(line)) {
+      return { status: "citizenship_required", evidence: line };
+    }
+    if (!preferred && CLEARANCE_FIELD.test(line) && !OPTIONAL.test(line)) {
+      return { status: "citizenship_required", evidence: line };
+    }
+    if (
+      EXPORT_CONTROL.test(line) &&
+      !exportHedgedByNeighbours(line, before, after) &&
+      (!/^\s*EAR\b|[^A-Za-z]EAR\b/i.test(line) || EXPORT_CONTROL_EAR_CASE.test(line) || /ITAR|export/i.test(line)) &&
+      EXPORT_GATE.test(line) &&
+      !EXPORT_HEDGE.test(line)
+    ) {
       return { status: "citizenship_required", evidence: line };
     }
     if (!refusal && (REFUSES.test(line) || NOT_AVAILABLE.test(line))) refusal = line;

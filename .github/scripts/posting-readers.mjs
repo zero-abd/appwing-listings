@@ -571,6 +571,126 @@ export function icimsFrameUrl(value) {
   return `https://${url.hostname}/jobs/${path[1]}/job?mode=job&in_iframe=1`;
 }
 
+/* ─────────────────────────── Oracle Recruiting Cloud ────────────────────── */
+
+/**
+ * Oracle's candidate site (`<pod>.fa.<dc>.oraclecloud.com/hcmUI/CandidateExperience/
+ * <locale>/sites/<site>/job/<id>`) is a JavaScript shell: fetched as HTML it
+ * strips to a few characters, and it was the largest single cause of `unread`
+ * on the board (measured 28 September 2026: ~200 of 299 unread open rows).
+ * The shell's own front end reads the requisition from the tenant's public
+ * REST resource, keyed by the job id and the site number, with no session.
+ * The same host serves both, so a refusal there is a refusal of the page too.
+ */
+export function oracleRequisitionUrl(value) {
+  const url = parse(value);
+  if (!url) return null;
+  const host = url.hostname.toLowerCase();
+  if (!host.endsWith(".oraclecloud.com")) return null;
+  const path = segments(url);
+  const at = path.indexOf("CandidateExperience");
+  if (at < 0) return null;
+  const sitesAt = path.indexOf("sites", at);
+  const jobAt = path.indexOf("job", at);
+  if (sitesAt < 0 || jobAt !== sitesAt + 2) return null;
+  const site = path[sitesAt + 1];
+  const id = path[jobAt + 1];
+  if (!site || !/^[A-Za-z0-9_-]+$/.test(site) || !id || !/^\d+$/.test(id)) return null;
+  return (
+    `https://${url.hostname}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails` +
+    `?expand=all&onlyData=true&finder=ById;Id=%22${id}%22,siteNumber=${site}`
+  );
+}
+
+export function oracleDescription(body) {
+  const item = json(body)?.items?.[0];
+  if (!item || typeof item !== "object") return null;
+  return nonEmpty(
+    joinBlocks([
+      item.ExternalDescriptionStr,
+      item.ExternalResponsibilitiesStr,
+      item.ExternalQualificationsStr,
+      item.CorporateDescriptionStr,
+      item.OrganizationDescriptionStr,
+    ]),
+  );
+}
+
+/* ─────────────────── Greenhouse behind an employer's own domain ─────────── */
+
+/**
+ * `careers.withwaymo.com/jobs?gh_jid=8208465`, `hudsonrivertrading.com/careers/
+ * job/?gh_jid=…`: an employer page that embeds a Greenhouse posting in
+ * JavaScript, so the HTML holds nothing. The board token that the API wants is
+ * not in the URL, but Greenhouse's own embed page takes the job id alone and
+ * redirects to the right board, and its HTML carries the description.
+ * Greenhouse's hosts are excluded here; `greenhouseApiUrl` reads those.
+ */
+export function greenhouseJobIdUrl(value) {
+  const url = parse(value);
+  if (!url) return null;
+  if (isGreenhouseHost(url.hostname)) return null;
+  const id = nonEmpty(url.searchParams.get("gh_jid"));
+  if (!id || !/^\d+$/.test(id)) return null;
+  return `https://boards.greenhouse.io/embed/job_app?token=${id}`;
+}
+
+/**
+ * The description part of an embed page, and nothing else.
+ *
+ * The page is the APPLICATION FORM with the description above it, and some
+ * boards leave the description out entirely (measured: AQR's embed is the form
+ * alone). A form alone is long enough to pass the readable floor and says
+ * nothing about the job, so handing it on whole would record "read, no
+ * barrier" for a posting nobody read. Only the `job__description` block counts;
+ * without one, this reader has nothing and the scan falls through to the page
+ * and then to `unread`, which is the honest answer.
+ */
+export function greenhouseEmbedDescription(body) {
+  const html = String(body ?? "");
+  const start = html.search(/<[a-z]+[^>]*class="job__description\b/);
+  if (start < 0) return null;
+  const rest = html.slice(start);
+  const end = rest.search(/<form\b|class="application--|id="application[-_"]/);
+  return nonEmpty(end > 0 ? rest.slice(0, end) : rest);
+}
+
+/* ─────────────────────────────── Workable ───────────────────────────────── */
+
+/** `apply.workable.com/<account>/j/<shortcode>[/apply]` → the public v2 job resource. */
+export function workableApiUrl(value) {
+  const url = parse(value);
+  if (!url || url.hostname.toLowerCase() !== "apply.workable.com") return null;
+  const path = segments(url);
+  if (path.length < 3 || path[1] !== "j") return null;
+  const [account, , code] = path;
+  if (!account || !code || !/^[A-Za-z0-9]+$/.test(code)) return null;
+  return `https://apply.workable.com/api/v2/accounts/${encodeURIComponent(account)}/jobs/${code}`;
+}
+
+export function workableDescription(body) {
+  const job = json(body);
+  if (!job) return null;
+  return nonEmpty(joinBlocks([job.description, job.requirements, job.benefits]));
+}
+
+/* ─────────────────────────────── BambooHR ───────────────────────────────── */
+
+/** `<co>.bamboohr.com/careers/<id>` → the JSON its own careers page reads. */
+export function bambooDetailUrl(value) {
+  const url = parse(value);
+  if (!url) return null;
+  const host = url.hostname.toLowerCase();
+  if (!host.endsWith(".bamboohr.com")) return null;
+  const path = segments(url);
+  if (path[0] !== "careers" || !path[1] || !/^\d+$/.test(path[1])) return null;
+  return `https://${url.hostname}/careers/${path[1]}/detail`;
+}
+
+export function bambooDescription(body) {
+  return nonEmpty(json(body)?.result?.jobOpening?.description);
+}
+
 /* ─────────────────────────────── the picker ─────────────────────────────── */
 
 /** What every reader answers with. `accept` is the header the endpoint wants. */
@@ -658,6 +778,54 @@ export function postingReader(value) {
     };
   }
 
+  const oracle = oracleRequisitionUrl(url.toString());
+  if (oracle) {
+    return {
+      name: "oracle-rest",
+      url: oracle,
+      accept: JSON_ACCEPT,
+      sameHost: true,
+      shared: false,
+      extract: oracleDescription,
+    };
+  }
+
+  const greenhouseById = greenhouseJobIdUrl(url.toString());
+  if (greenhouseById) {
+    return {
+      name: "greenhouse-embed",
+      url: greenhouseById,
+      accept: HTML_ACCEPT,
+      sameHost: false,
+      shared: false,
+      extract: greenhouseEmbedDescription,
+    };
+  }
+
+  const workable = workableApiUrl(url.toString());
+  if (workable) {
+    return {
+      name: "workable-api",
+      url: workable,
+      accept: JSON_ACCEPT,
+      sameHost: false,
+      shared: false,
+      extract: workableDescription,
+    };
+  }
+
+  const bamboo = bambooDetailUrl(url.toString());
+  if (bamboo) {
+    return {
+      name: "bamboohr-api",
+      url: bamboo,
+      accept: JSON_ACCEPT,
+      sameHost: true,
+      shared: false,
+      extract: bambooDescription,
+    };
+  }
+
   const icims = icimsFrameUrl(url.toString());
   if (icims) {
     return {
@@ -683,4 +851,8 @@ export const READER_NAMES = [
   "workday-cxs",
   "smartrecruiters-api",
   "icims-iframe",
+  "oracle-rest",
+  "greenhouse-embed",
+  "workable-api",
+  "bamboohr-api",
 ];

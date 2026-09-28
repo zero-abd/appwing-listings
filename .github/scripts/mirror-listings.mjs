@@ -493,6 +493,79 @@ export function payFields(scan) {
   };
 }
 
+/**
+ * Who a posting says may apply, as it goes into the mirror row.
+ *
+ * ONE KEY, `eligibility`, PRESENT EXACTLY WHEN THE POSTING WAS READ BY A
+ * REVISION THAT EXTRACTS IT, and holding only the rules the posting stated. An
+ * empty object is a real answer — "read, and this posting states no rule",
+ * which is most of the board — and absence means "not extracted": never read,
+ * unread, or read by revision 7 or earlier and not yet re-read. The Worker
+ * dates it with `sponsorshipScannedAt`, the read it came from.
+ *
+ * Every rule is checked here rather than trusted from the cache, the argument
+ * `payFields` makes: this reads a file another script wrote on a branch
+ * rewritten all day, and a rule that reaches the board HIDES a job. A rule that
+ * fails its shape is dropped alone; the rest of the object stands.
+ */
+const MONTH = /^\d{4}-(?:0[1-9]|1[0-2])$/;
+const DEGREE_LEVELS = new Set(["high_school", "associate", "bachelors", "masters", "mba", "phd"]);
+const STANDINGS = new Set([
+  "freshman", "sophomore", "junior", "senior",
+  "rising_sophomore", "rising_junior", "rising_senior",
+  "penultimate_year", "final_year", "returning",
+]);
+
+function sentence(value) {
+  const t = text(value);
+  return t && t.length <= 300 ? t : undefined;
+}
+
+export function eligibilityFields(scan) {
+  if (!scan || typeof scan !== "object") return {};
+  if (scan.status === "unread") return {};
+  const e = scan.eligibility;
+  if (!e || typeof e !== "object") return {};
+  const out = {};
+
+  const w = e.gradWindow;
+  if (w && typeof w === "object" && sentence(w.evidence)) {
+    const from = w.from === null ? null : MONTH.test(String(w.from)) ? w.from : undefined;
+    const to = w.to === null ? null : MONTH.test(String(w.to)) ? w.to : undefined;
+    if (from !== undefined && to !== undefined && (from || to) && (!from || !to || from <= to)) {
+      out.gradWindow = { from, to, evidence: sentence(w.evidence) };
+    }
+  }
+
+  const d = e.degreeLevels;
+  if (d && typeof d === "object" && Array.isArray(d.levels) && sentence(d.evidence)) {
+    const levels = d.levels.filter((l) => DEGREE_LEVELS.has(l));
+    if (levels.length > 0 && levels.length === d.levels.length) out.degreeLevels = { levels, evidence: sentence(d.evidence) };
+  }
+
+  const c = e.classYears;
+  if (c && typeof c === "object" && Array.isArray(c.years) && sentence(c.evidence)) {
+    const years = c.years.filter((y) => Number.isInteger(y) && y >= 2020 && y <= 2040);
+    if (years.length > 0 && years.length === c.years.length) out.classYears = { years, evidence: sentence(c.evidence) };
+  }
+
+  const st = e.standing;
+  if (st && typeof st === "object" && Array.isArray(st.values) && sentence(st.evidence)) {
+    const values = st.values.filter((v) => STANDINGS.has(v));
+    if (values.length > 0 && values.length === st.values.length) out.standing = { values, evidence: sentence(st.evidence) };
+  }
+
+  const r = e.schoolRule;
+  if (r && typeof r === "object" && sentence(r.text) && Array.isArray(r.locations)) {
+    out.schoolRule = {
+      text: sentence(r.text),
+      locations: r.locations.filter((l) => typeof l === "string" && l.trim()).map((l) => l.trim()),
+    };
+  }
+
+  return { eligibility: out };
+}
+
 export function compact(entry, scan) {
   return {
     id: entry.id,
@@ -520,6 +593,9 @@ export function compact(entry, scan) {
     // pay key at all, so the bytes of the ~1,300 rows that state nothing are
     // exactly what they were before this feed existed.
     ...payFields(scan),
+    // Same spread: a row nobody extracted carries no key, so the bytes of a
+    // mirror built before revision 8 are exactly what they were.
+    ...eligibilityFields(scan),
   };
 }
 
@@ -645,9 +721,10 @@ async function main() {
   // from. Structurally zero before this feed existed: there is no pay field
   // anywhere upstream.
   const paid = listings.filter((l) => l.payPeriod !== undefined).length;
+  const eligible = listings.filter((l) => l.eligibility !== undefined).length;
   console.log(
     `upstream=${upstreamCount} selected=${listings.length} active=${active} ` +
-      `scanned=${scanned} barriers=${barred} pay=${paid} bytes=${bytes} unchanged=${unchanged}`,
+      `scanned=${scanned} barriers=${barred} pay=${paid} eligibility=${eligible} bytes=${bytes} unchanged=${unchanged}`,
   );
 
   if (!unchanged && !dryRun) writeFileSync(out, snapshot);
