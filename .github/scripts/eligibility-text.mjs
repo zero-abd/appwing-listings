@@ -72,6 +72,46 @@ function requirementLines(text) {
   return out;
 }
 
+/* ──────────────────────── alternatives joined by "or" ───────────────────── */
+
+/**
+ * A year in school offered as ONE of several ways in: "Rising juniors, or
+ * students expected to be ready for full time employment between December 2027
+ * - June 2028" (Virtu), "rising juniors, seniors, or graduate students", "a
+ * Sophomore, Junior, or in a Masters program (graduation date December 2027 -
+ * May 2029)".
+ *
+ * The row's rules are ANDed by every reader (the board's SQL filter asks each
+ * column separately), so storing `rising_junior` from the Virtu line hid it from
+ * a May 2028 graduate the second branch admits. An OR across two rules cannot be
+ * written as two columns, so such a line contributes NEITHER its year in school
+ * NOR its graduation dates: a miss, which keeps the posting, rather than half of
+ * an alternative, which hides it. (Degree programmes are unaffected: those are
+ * already a union across the whole posting.)
+ */
+const STANDING_WORD = /\b(?:freshm[ae]n|sophomores?|juniors?|seniors?)\b|\b(?:penultimate|final)[-\s]year\b/i;
+/**
+ * The branch after "or" is a different KIND of applicant, one the year in
+ * school does not describe: graduate or master's or PhD students, recent
+ * graduates, students expected to graduate or finish by a date, someone in or
+ * enrolled in a graduate programme. NOT a degree list inside one requirement
+ * ("the penultimate year of a Master's or PhD program", "pursuing a bachelor's
+ * or master's degree"), where the year in school still governs every branch.
+ */
+const OR_OTHER_BRANCH = new RegExp(
+  [
+    String.raw`\bor\s+(?:an?\s+)?(?:current(?:ly)?\s+)?(?:(?:full[-\s]time|first[-\s]year|1st[-\s]year|second[-\s]year|2nd[-\s]year)\s+)?(?:graduate|grad|master['’]?s|masters|ph\.?\s?d\.?|doctoral|mba)(?:[-\s]level)?\s+(?:students?|candidates?|in\b)`,
+    String.raw`\bor\s+(?:an?\s+)?recent(?:ly)?\s+grad`,
+    String.raw`\bor\s+(?:an?\s+)?(?:students?|candidates?|applicants?|individuals?|those|anyone)\s+(?:who|with|expected|expecting|graduating|enrolled|pursuing|in\s+(?:a|an|their)\b)`,
+    String.raw`\bor\s+(?:be\s+)?(?:currently\s+)?(?:in|enrolled\s+in)\s+an?\s+(?:\w+\s+){0,2}?(?:graduate|master|ph|doctoral|mba)`,
+  ].join("|"),
+  "i",
+);
+
+function offersAlternatives(line) {
+  return STANDING_WORD.test(line) && OR_OTHER_BRANCH.test(line);
+}
+
 /* ───────────────────────────── graduation dates ─────────────────────────── */
 
 const MONTH_NUMBERS = {
@@ -284,6 +324,7 @@ function graduation(lines) {
   for (const line of lines) {
     if (!GRAD_EVENT.test(line)) continue;
     if (PREFERENCE.test(line) || INELIGIBLE.test(line) || NOT_THE_APPLICANT.test(line)) continue;
+    if (offersAlternatives(line)) continue;
     // "Graduated no more than a year ago" is a new-grad rule about the past.
     if (/\b(?:recent(?:ly)?\s+graduat|graduated\b|since\s+graduat|after\s+graduation\b|upon\s+graduation\b|post[-\s]graduation\b)/i.test(line)) continue;
     if (GRADUATE_JOB.test(line) || /\$\s?\d|\bpay\s+rate\b|\bsalary\b/i.test(line)) continue;
@@ -479,6 +520,7 @@ function standing(lines) {
   let first = null;
   for (const line of lines) {
     if (PREFERENCE.test(line) || INELIGIBLE.test(line) || PAY_LINE.test(line) || NOT_THE_APPLICANT.test(line)) continue;
+    if (offersAlternatives(line)) continue;
     const found = new Set();
     if (RETURNING.test(line) && RETURNING_CUE.test(line) && !RETURNING_NOT.test(line)) found.add("returning");
     if (STANDING_CONTEXT.test(line) && !/\bnot\b|n't\b/i.test(line)) {

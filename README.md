@@ -26,7 +26,7 @@ The scripts in `.github/scripts/` are **copies** from Appwing's private reposito
 where they are tested. Whenever they change there, copy them here too. This repo's
 header lists the Appwing commit they were last copied from.
 
-- Scripts last copied from Appwing commit: 1308e937
+- Scripts last copied from Appwing commit: 58c7ffb4
 
 ## Notes
 
